@@ -1,0 +1,48 @@
+193612
+
+connect VPN first
+
+10.172.42.33
+
+ssh gang@10.172.42.33
+ 
+password: pwd123
+
+activate conda
+
+source /home/gang/miniconda3/bin/activate
+
+
+nvidia-docker run --name yolov7 -it -v your_coco_path/:/coco/ -v your_code_path/:/yolov7 --shm-size=64g nvcr.io/nvidia/pytorch:21.08-py3
+# create the docker container, you can change the share memory size if you have more.
+nvidia-docker run --name yolov7 -it -v your_coco_path/:/coco/ -v your_code_path/:/yolov7 --shm-size=64g nvcr.io/nvidia/pytorch:21.08-py3
+
+# apt install required packages
+apt update
+apt install -y zip htop screen libgl1-mesa-glx
+
+# pip install required packages
+pip install seaborn thop
+
+# go to code folder
+cd /yolov7
+
+
+nvidia-docker run --name yolov7 -it -v /home/gang/git/fdyolov7/data/:/coco/ -v /home/gang/git/fdyolov7/:/yolov7 --shm-size=64g nvcr.io/nvidia/pytorch:21.08-py3
+
+docker run --name yolov7 -it -v /home/gang/git/fdyolov7/data/:/coco/ -v /home/gang/git/fdyolov7/:/yolov7  nvcr.io/nvidia/pytorch:21.08-py3
+
+
+python test.py --data data/coco.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 --device 0 --weights yolov7.pt --name yolov7_640_val
+
+https://stackoverflow.com/questions/78486965/pytorch-runtimeerror-device-0-device-num-gpus-internal-assert-failed
+
+
+python -m --master_port 9527 train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-cbam.yaml --weights yolov7-w6-person.pt --batch-size 128 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-cbam --hyp data/hyp.pose.yaml
+
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-cbam.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-cbam --hyp data/hyp.pose.yaml
+
+
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-defconv.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-defconv --hyp data/hyp.pose.yaml
+
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-depthconv.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-depthconv --hyp data/hyp.pose.yaml
