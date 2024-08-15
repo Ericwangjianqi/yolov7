@@ -1,0 +1,6 @@
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-cbam.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-cbam --hyp data/hyp.pose.yaml
+
+
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-defconv.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-defconv --hyp data/hyp.pose.yaml
+
+python train.py --data data/coco_kpts.yaml --cfg cfg/yolov7-pose-depthconv.yaml --weights yolov7-w6-person.pt --batch-size 8 --img 960 --kpt-label --sync-bn --device 0 --name yolov7-pose-depthconv --hyp data/hyp.pose.yaml
