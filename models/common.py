@@ -684,3 +684,130 @@ class depthwise_separable_conv(nn.Module):
         out = self.depthwise(x)
         out = self.pointwise(out)
         return out
+class CoordinateAttention(nn.Module):
+    def __init__(self, in_dim, out_dim, reduction=32):
+        super().__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+        hidden_dim = max(8, in_dim // reduction)
+        self.conv1 = nn.Conv2d(in_dim, hidden_dim, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(hidden_dim)
+        self.act = nn.ReLU(inplace=True)
+        self.conv_h = nn.Conv2d(hidden_dim, out_dim, kernel_size=1, stride=1, padding=0)
+        self.conv_w = nn.Conv2d(hidden_dim, out_dim, kernel_size=1, stride=1, padding=0)
+        
+    def forward(self, x):
+        identity = x
+        b,c,h,w = x.shape
+        x_h = self.pool_h(x)
+        x_w = self.pool_w(x).transpose(-1, -2)
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
+        y = self.act(y)
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.transpose(-1, -2)
+        a_h = self.conv_h(x_h)
+        a_w = self.conv_w(x_w)
+        out = identity * a_h * a_w
+        return out
+
+class ChannelGate(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.mlp = nn.Sequential(
+            nn.Linear(channel, channel // reduction),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel)
+        )
+        self.bn = nn.BatchNorm1d(channel)
+    
+    def forward(self, x):
+        b, c, h, w = x.shape
+        y = self.avgpool(x).view(b, c)
+        y = self.mlp(y)
+        y = self.bn(y).view(b, c, 1, 1)
+        return y.expand_as(x)
+    
+class SpatialGate(nn.Module):
+    def __init__(self, channel, reduction=16, kernel_size=3, dilation_val=4):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channel, channel // reduction, kernel_size=1)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(channel // reduction, channel // reduction, kernel_size, padding=dilation_val,
+                      dilation=dilation_val),
+            nn.BatchNorm2d(channel // reduction),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel // reduction, channel // reduction, kernel_size, padding=dilation_val,
+                      dilation=dilation_val),
+            nn.BatchNorm2d(channel // reduction),
+            nn.ReLU(inplace=True)
+        )
+        self.conv3 = nn.Conv2d(channel // reduction, 1, kernel_size=1)
+        self.bn = nn.BatchNorm2d(1)
+    
+    def forward(self, x):
+        b, c, h, w = x.shape
+        y = self.conv1(x)
+        y = self.conv2(y)
+        y = self.conv3(y)
+        y = self.bn(y)
+        return y.expand_as(x)
+    
+class BAM(nn.Module):
+    def __init__(self, channel, out):
+        super().__init__()
+        self.channel_attn = ChannelGate(channel)
+        self.spatial_attn = SpatialGate(channel)
+        
+    def forward(self, x):
+        attn = F.sigmoid(self.channel_attn(x) + self.spatial_attn(x))
+        return x + x * attn
+    
+
+class DoubleAttention(nn.Module):
+   
+    def __init__(self, in_channels, c_m, c_n):
+        
+        super().__init__()
+        self.c_m = c_m
+        self.c_n = c_n
+        self.in_channels = in_channels
+        self.convA = nn.Conv2d(in_channels, c_m, kernel_size = 1)
+        self.convB = nn.Conv2d(in_channels, c_n, kernel_size = 1)
+        self.convV = nn.Conv2d(in_channels, c_n, kernel_size = 1)
+        self.proj = nn.Conv2d(c_m, in_channels, kernel_size = 1)
+
+    def forward(self, x):
+        b, c, h, w = x.shape
+        A = self.convA(x)  # (B, c_m, h, w) because kernel size is 1
+        B = self.convB(x)  # (B, c_n, h, w)
+        V = self.convV(x)  # (B, c_n, h, w)
+        tmpA = A.view(b, self.c_m, h * w)
+        attention_maps = B.view(b, self.c_n, h * w)
+        attention_vectors = V.view(b, self.c_n, h * w)
+        attention_maps = F.softmax(attention_maps, dim = -1)  # softmax on the last dimension to create attention maps
+        # step 1: feature gathering
+        global_descriptors = torch.bmm(tmpA, attention_maps.permute(0, 2, 1))  # (B, c_m, c_n)
+        # step 2: feature distribution
+        attention_vectors = F.softmax(attention_vectors, dim = 1)  # (B, c_n, h * w) attention on c_n dimension
+        tmpZ = global_descriptors.matmul(attention_vectors)  # B, self.c_m, h * w
+        tmpZ = tmpZ.view(b, self.c_m, h, w)
+        tmpZ = self.proj(tmpZ)
+        return tmpZ
+
+class ECALayer(nn.Module):
+    def __init__(self, channels, gamma=2, b=1):
+        super().__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        t = int(abs((math.log(channels, 2) + b) / gamma))
+        k = t if t % 2 else t + 1
+        self.conv = nn.Conv1d(1, 1, kernel_size=k, padding=(k - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        y = self.avgpool(x)
+        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)
