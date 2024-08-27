@@ -811,3 +811,57 @@ class ECALayer(nn.Module):
         y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
         y = self.sigmoid(y)
         return x * y.expand_as(x)
+        
+class Conv_CBAM(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super(Conv_CBAM, self).__init__()
+
+        self.cbam = CBAM(c1, c1)
+
+        self.conv = nn.Conv2d(c1, c2, kernel_size=k, padding=autopad(k, p), bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        
+    def forward(self, x):
+        out = self.bn(self.conv(self.cbam(x)))
+        return out
+    
+class Conv_coord(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super(Conv_coord, self).__init__()
+
+        self.coord = CoordinateAttention(c1,c1)
+
+        self.conv = nn.Conv2d(c1, c2, kernel_size=k, padding=autopad(k, p), bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+    
+    def forward(self, x):
+        out = self.bn(self.conv(self.coord(x)))
+        return out
+    
+
+class Conv_double(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super(Conv_double, self).__init__()
+
+        self.doubleat = DoubleAttention(c1,c1,c1)
+
+        self.conv = nn.Conv2d(c1, c2, kernel_size=k, padding=autopad(k, p), bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+    
+    def forward(self, x):
+        out = self.bn(self.conv(self.doubleat(x)))
+        return out
+
+
+class Conv_eca(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super(Conv_eca, self).__init__()
+
+        self.eca = ECALayer(c1,c1)
+
+        self.conv = nn.Conv2d(c1, c2, kernel_size=k, padding=autopad(k, p), bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+    
+    def forward(self, x):
+        out = self.bn(self.conv(self.eca(x)))
+        return out
