@@ -145,8 +145,16 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Scheduler https://arxiv.org/pdf/1812.01187.pdf
     # https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html#OneCycleLR
+
+    def lr_manual(x, warm_up_epochs=10, warm_up_lr=1e-5, lr0=1e-3, decay_epochs=10, decay_rate = 0.9):
+        if x < warm_up_epochs:
+            return max(warm_up_lr, x * lr0 / warm_up_epochs)
+        else:
+            return max(warm_up_lr, lr0*decay_rate**(x / decay_epochs))
+            
     if opt.linear_lr:
-        lf = lambda x: (1 - x / (epochs - 1)) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
+        # lf = lambda x: (1 - x / (epochs - 1)) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
+        lf = lambda x: lr_manual(x)
     else:
         lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
